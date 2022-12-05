@@ -257,6 +257,49 @@ class Normal(Prior):
         return (-np.inf, np.inf)
 
 
+class MultiVariateNormal(Prior):
+    prior_params = ["mean", 'Sigma']
+    distribution = scipy.stats.norm
+
+    @property
+    def scale(self):
+        return self.params['sigma']
+
+    @property
+    def loc(self):
+        return self.params['mean']
+
+    @property
+    def range(self):
+        nsig = 4
+        return (self.params['mean'] - nsig * self.params['sigma'],
+                self.params['mean'] + nsig * self.params['sigma'])
+
+    def bounds(self, **kwargs):
+        #if len(kwargs) > 0:
+        #    self.update(**kwargs)
+        return (-np.inf, np.inf)
+
+    def unit_transform(self, x, **kwargs):
+        """Go from a value of the CDF (between 0 and 1) to the corresponding
+        parameter value.
+
+        :param x:
+            A scalar or vector of same length as the Prior with values between
+            zero and one corresponding to the value of the CDF.
+
+        :returns theta:
+            The parameter value corresponding to the value of the CDF given by
+            `x`.
+        """
+        if len(kwargs) > 0:
+            self.update(**kwargs)
+        z =  self.distribution.ppf(x, *self.args, loc=0, scale=1)
+        sqrtS = np.linalg.cholesky(self.params['Sigma'], lower=True)
+        theta = np.matmul(z, sqrtS)
+        return theta
+
+
 class ClippedNormal(Prior):
     """A Gaussian prior clipped to some range.
 
