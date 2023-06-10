@@ -81,16 +81,25 @@ def get_spectrum(ssp, params, emul, tage=0):
     young, old = ssp._csp_young_old
     csps = [young, old] # could combine with previous line
     lines = []
-    for spec in csps:
-        if add_neb:
-            if use_stars:
-                ion_params = fit_log_linear_ionparam(wave, spec)
-                params.update(**ion_params)
+    mass = np.sum(params.get('mass', 1.0))
+    if not add_neb:
+        lines = [np.zeros_like(ewave), np.zeros_like(ewave)]
+    elif add_neb:
+        if not use_stars:
             line_prediction = emul.predict_lines(**params)
-            lines.append(line_prediction)
-            spec += emul.predict_cont(wave, **params)
-        else:
-            lines.append(np.zeros_like(ewave))
+            if ssp.params["sfh"] == 3:
+                line_prediction /= mass
+            lines = [line_prediction, np.zeros_like(ewave)]
+            csps[0] += emul.predict_cont(wave, **params)
+        elif use_stars:
+            for spec in csps:
+                ion_params = cue.fit_4loglinear_ionparam(wave, spec)
+                params.update(**ion_params)
+                line_prediction = emul.predict_lines(**params)
+                if ssp.params["sfh"] == 3:
+                    line_prediction /= mass
+                lines.append(line_prediction)
+                spec += emul.predict_cont(wave, **params)
 
     sspec, lines = add_dust(wave, csps, ewave, lines, **params)
     sspec = add_igm(wave, sspec, **params)

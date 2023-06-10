@@ -11,17 +11,22 @@ def add_dust(wave,specs,line_waves,lines,dust_type=0,dust_index=0.0,dust2=0.0,du
     lines: emission line flux density, in (young, old) pairs
     """
 
+    attenuated_specs = np.zeros_like(specs)
+    attenuated_lines = np.zeros_like(lines)
+
     # Loop over the (young,old) pairs for both lines and continuum
     for i, (spec, line) in enumerate(zip(specs,lines)):
-        if (i == 0): 
+        if (i == 0):
             d1 = dust1
         else:
             d1 = 0.0
 
-        spec = attenuate(spec,wave,dust_type=dust_type,dust_index=dust_index,dust2=dust2,dust1=d1)
-        line = attenuate(line,line_waves,dust_type=dust_type,dust_index=dust_index,dust2=dust2,dust1=d1)
+        attenuated_specs[i] = attenuate(spec,wave,dust_type=dust_type,dust_index=dust_index,dust2=dust2,dust1_index=dust1_index,dust1=d1)
+        attenuated_lines[i] = attenuate(line,line_waves,dust_type=dust_type,dust_index=dust_index,dust2=dust2,dust1_index=dust1_index,dust1=d1)
 
-    return specs, lines
+    attenuated_specs = attenuated_specs[0] + attenuated_specs[1]
+    attenuated_lines = attenuated_lines[0] + attenuated_lines[1]
+    return attenuated_specs, attenuated_lines
 
 
 def attenuate(spec,lam,dust_type=0,dust_index=0.0,dust2=0.0,dust1_index=0.0,dust1=0.0):
@@ -116,15 +121,15 @@ def attenuate(spec,lam,dust_type=0,dust_index=0.0,dust2=0.0,dust1_index=0.0,dust
         reddy = reddy/2.505
 
         attn_curve = dust2*reddy
-        
+
     dust1_ext = np.exp(-dust1*(lam/5500.)**dust1_index)
     dust2_ext = np.exp(-attn_curve)
 
     ext_tot = dust2_ext*dust1_ext
-     
+
     return ext_tot*spec
 
-def add_igm(wave, spec, zred=None, igm_factor=None, add_igm_absorption=None):
+def add_igm(wave, spec, zred=None, igm_factor=1.0, add_igm_absorption=None, **kwargs):
     """IGM absorption based on Madau+1995
     wave: rest-frame wavelength
     spec: spectral flux density
@@ -167,4 +172,4 @@ def add_igm(wave, spec, zred=None, igm_factor=None, add_igm_absorption=None):
 
     # attenuate the input spectrum by the IGM
     # include a fudge factor to dial up/down the strength
-    return spec*np.exp(-tau*factor)
+    return spec*np.exp(-tau*igm_factor)
