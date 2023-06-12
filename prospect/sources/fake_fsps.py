@@ -140,22 +140,22 @@ def add_igm(wave, spec, zred=None, igm_factor=1.0, add_igm_absorption=None, **kw
     if add_igm_absorption == False:
         return spec
 
-    wave = np.asarray(wave) * (1+zred)
+    redshifted_wave = np.asarray(wave) * (1+zred)
 
     lylim = 911.75
     lyw = np.array([1215.67, 1025.72, 972.537, 949.743, 937.803, 930.748, 926.226, 923.150, 920.963, 919.352,918.129, 917.181, 916.429, 915.824, 915.329, 914.919, 914.576])
     lycoeff = np.array([0.0036,0.0017,0.0011846,0.0009410,0.0007960,0.0006967,0.0006236,0.0005665,0.0005200,0.0004817,0.0004487, 0.0004200,0.0003947,0.000372,0.000352,0.0003334,0.00031644])
     nly = len(lyw)
 
-    tau_line = np.zeros_like(wave)
+    tau_line = np.zeros_like(redshifted_wave)
     for i in range(nly):
         lmin = lyw[i]
         lmax = lyw[i]*(1.0+zred)
 
-        idx0 = np.where((wave>=lmin) & (wave<=lmax))[0]
-        tau_line[idx0] += lycoeff[i]*np.exp(3.46*np.log(wave[idx0]/lyw[i]))
+        idx0 = np.where((redshifted_wave>=lmin) & (redshifted_wave<=lmax))[0]
+        tau_line[idx0] += lycoeff[i]*np.exp(3.46*np.log(redshifted_wave[idx0]/lyw[i]))
 
-    xc = wave/lylim
+    xc = redshifted_wave/lylim
     xem = 1.0+zred
 
     idx = np.where(xc<1.0)[0]
