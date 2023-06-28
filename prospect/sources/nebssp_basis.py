@@ -1,4 +1,4 @@
-
+### SSP for cue
 import numpy as np
 
 from .ssp_basis import FastStepBasis
@@ -69,11 +69,28 @@ class NebSSPBasis(FastStepBasis):
         self.ssp.set_tabular_sfh(time, sfr)
 
         wave, spec, lines = get_spectrum(self.ssp, self.params, self.emul, tage=tmax)
-        self._line_specific_luminosity = lines
+        self._line_specific_luminosity = lines/mtot
+        if self.params.get("nebemlineinspec", False): # mimic the "nebemlineinspec" function in FSPS
+            if self.ssp.params["smooth_velocity"] == True:
+                dlam = self.ssp.emline_wavelengths*self.ssp.params["sigma_smooth"]/2.9979E18*1E13 #smoothing variable is in km/s
+            else:
+                dlam = self.ssp.params["sigma_smooth"] #smoothing variable is in AA
+            nearest_id = np.searchsorted(wave, self.ssp.emline_wavelengths)
+            neb_res_min = wave[nearest_id]-wave[nearest_id-1]
+            dlam = np.max([dlam,neb_res_min], axis=0)
+            gaussnebarr = [1./np.sqrt(2*np.pi)/dlam[i]*np.exp(-(wave-self.ssp.emline_wavelengths[i])**2/2/dlam[i]**2) \
+            /2.9979E18*self.ssp.emline_wavelengths[i]**2 for i in range(len(lines))]
+            for i in range(len(lines)):
+                spec += lines[i]*gaussnebarr[i]
         return wave, spec / mtot, self.ssp.stellar_mass / mtot
 
 
 def get_spectrum(ssp, params, emul, tage=0):
+    """
+    Add the nebular continuum from Cue to the young and old population and do the dust attenuation and igm absorption.
+    Also, calculate the line luminoisities from the young csp and old csp and do the dust attenuation and igm absorption.
+    The output spec/line luminosity need to be divided by total formed mass to get the specific number.
+    """
     add_neb = params["add_neb_emission"]
     use_stars = params["use_stellar_ionizing"]
     ewave = ssp.emline_wavelengths
@@ -87,19 +104,21 @@ def get_spectrum(ssp, params, emul, tage=0):
     elif add_neb:
         if not use_stars:
             line_prediction = emul.predict_lines(**params)
-            if ssp.params["sfh"] == 3:
-                line_prediction /= mass
+            #if ssp.params["sfh"] == 3:
+            #    line_prediction /= mass
             lines = [line_prediction, np.zeros_like(ewave)]
-            csps[0] += emul.predict_cont(wave, **params)
+            csps[0][wave>=912] += emul.predict_cont(wave[wave>=912], **params)
         elif use_stars:
             for spec in csps:
                 ion_params = cue.fit_4loglinear_ionparam(wave, spec)
                 params.update(**ion_params)
                 line_prediction = emul.predict_lines(**params)
-                if ssp.params["sfh"] == 3:
-                    line_prediction /= mass
+                #if ssp.params["sfh"] == 3:
+                #    line_prediction /= mass
                 lines.append(line_prediction)
-                spec += emul.predict_cont(wave, **params)
+                spec[wave>=912] += emul.predict_cont(wave[wave>=912], **params)
+        else:
+            raise KeyError('No "use_stellar_ionizing" in model')
 
     sspec, lines = add_dust(wave, csps, ewave, lines, **params)
     sspec = add_igm(wave, sspec, **params)

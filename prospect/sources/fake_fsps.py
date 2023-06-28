@@ -172,4 +172,6 @@ def add_igm(wave, spec, zred=None, igm_factor=1.0, add_igm_absorption=None, **kw
 
     # attenuate the input spectrum by the IGM
     # include a fudge factor to dial up/down the strength
-    return spec*np.exp(-tau*igm_factor)
+    res = spec*np.exp(-tau*igm_factor)
+    tiny_number = 10**(-70.0)
+    return np.clip(res, a_min=tiny_number, a_max=None)
