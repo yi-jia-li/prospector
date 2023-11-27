@@ -47,7 +47,7 @@ class NebSSPBasis(FastStepBasis):
         # we do these now
         rp = ["dust1", "dust2", "dust3", "add_dust_emission",
               "add_igm_absorption", "igm_factor",
-              "add_neb_emission", "add_neb_continuum", "neblemlineinspec",
+              "add_neb_emission", "add_neb_continuum", "nebemlineinspec",
               "fagn", "agn_tau"]
         reserved_params = kwargs.pop("reserved_params", []) + rp
         super().__init__(reserved_params=reserved_params, **kwargs)
@@ -90,6 +90,8 @@ def get_spectrum(ssp, params, emul, tage=0):
     Add the nebular continuum from Cue to the young and old population and do the dust attenuation and igm absorption.
     Also, calculate the line luminoisities from the young csp and old csp and do the dust attenuation and igm absorption.
     The output spec/line luminosity need to be divided by total formed mass to get the specific number.
+    :param use_stellar_ionizing:
+        If true, fit CSPs and to get the ionizing spectrum parameters, else read from ssp
     """
     add_neb = params["add_neb_emission"]
     use_stars = params["use_stellar_ionizing"]

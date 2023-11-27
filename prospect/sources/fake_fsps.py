@@ -129,7 +129,7 @@ def attenuate(spec,lam,dust_type=0,dust_index=0.0,dust2=0.0,dust1_index=0.0,dust
 
     return ext_tot*spec
 
-def add_igm(wave, spec, zred=None, igm_factor=1.0, add_igm_absorption=None, **kwargs):
+def add_igm(wave, spec, zred=0., igm_factor=1.0, add_igm_absorption=None, **kwargs):
     """IGM absorption based on Madau+1995
     wave: rest-frame wavelength
     spec: spectral flux density
