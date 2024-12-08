@@ -5,8 +5,8 @@ from .galaxy_basis import FastStepBasis, CSPSpecBasis
 from .fake_fsps import add_dust, add_igm, idx
 
 try:
-    import cue
-except:
+    import cue, fsps
+except (ImportError, RuntimeError):
     pass
 
 
@@ -86,7 +86,7 @@ class NebStepBasis(FastStepBasis):
         return wave, spec / mtot, self.ssp.stellar_mass / mtot
 
     
-class NebCSPBasis(FastStepBasis):
+class NebCSPBasis(CSPSpecBasis):
 
     """A subclass of :py:class:`SSPBasis` for combinations of N composite
     stellar populations (including single-age populations). The number of
@@ -99,20 +99,20 @@ class NebCSPBasis(FastStepBasis):
                  vactoair_flag=False, compute_vega_mags=False, 
                  cue_kwargs={}, **kwargs):
 
-    # This is a StellarPopulation object from fsps
-    self.ssp = fsps.StellarPopulation(compute_vega_mags=compute_vega_mags,
-                                      zcontinuous=zcontinuous,
-                                      vactoair_flag=vactoair_flag)
-    self.emul = cue.Emulator(**cue_kwargs)
-    # we do these now
-    rp = ["dust1", "dust2", "dust3", "add_dust_emission",
-          "add_igm_absorption", "igm_factor",
-          "add_neb_emission", "add_neb_continuum", "nebemlineinspec",
-          "fagn", "agn_tau"]
-    reserved_params = kwargs.pop("reserved_params", []) + rp
-    super().__init__(reserved_params=reserved_params, **kwargs)
-    for k in ["add_igm_absorption", "add_dust_emission", "add_neb_emission", "nebemlineinspec"]:
-        self.ssp.params[k] = False
+        # This is a StellarPopulation object from fsps
+        self.ssp = fsps.StellarPopulation(compute_vega_mags=compute_vega_mags,
+                                          zcontinuous=zcontinuous,
+                                          vactoair_flag=vactoair_flag)
+        self.emul = cue.Emulator(**cue_kwargs)
+        # we do these now
+        rp = ["dust1", "dust2", "dust3", "add_dust_emission",
+              "add_igm_absorption", "igm_factor",
+              "add_neb_emission", "add_neb_continuum", "nebemlineinspec",
+              "fagn", "agn_tau"]
+        reserved_params = kwargs.pop("reserved_params", []) + rp
+        super().__init__(reserved_params=reserved_params, **kwargs)
+        for k in ["add_igm_absorption", "add_dust_emission", "add_neb_emission", "nebemlineinspec"]:
+            self.ssp.params[k] = False
 
     def get_galaxy_spectrum(self, **params):
         """Update parameters, then loop over each component getting a spectrum
@@ -155,7 +155,7 @@ class NebCSPBasis(FastStepBasis):
         return wave, spectrum, mfrac_sum
     
 
-def get_spectrum(ssp, params, emul, tage=0):
+def get_spectrum(ssp, params, emul, tage=0, peraa=False):
     """
     Add the nebular continuum from Cue to the young and old population and do the dust attenuation and igm absorption.
     Also, calculate the line luminoisities from the young csp and old csp and do the dust attenuation and igm absorption.
@@ -163,10 +163,10 @@ def get_spectrum(ssp, params, emul, tage=0):
     :param use_stellar_ionizing:
         If true, fit CSPs and to get the ionizing spectrum parameters, else read from ssp
     """
-    add_neb = params["add_neb_emission"]
-    use_stars = params["use_stellar_ionizing"]
+    add_neb = params.get("add_neb_emission", False)
+    use_stars = params.get("use_stellar_ionizing", False)
     ewave = ssp.emline_wavelengths
-    wave, tspec = ssp.get_spectrum(tage=tage, peraa=False)
+    wave, tspec = ssp.get_spectrum(tage=tage, peraa=peraa)
     young, old = ssp._csp_young_old
     csps = [young, old] # could combine with previous line
     lines = []
@@ -194,6 +194,52 @@ def get_spectrum(ssp, params, emul, tage=0):
         else:
             raise KeyError('No "use_stellar_ionizing" in model')
 
-    sspec, lines = add_dust(wave, csps, ewave, lines, **params)
-    sspec = add_igm(wave, sspec, **params)
+    sspec, lines = add_dust(wave, csps, ewave, lines, dust_type=0,dust_index=0.0,dust2=0.0,dust1_index=0.0,dust1=0.0, **params)
+    sspec = add_igm(wave, spec, zred=0., igm_factor=1.0, add_igm_absorption=None, **params)
+    return wave, sspec, lines
+def get_spectrum(ssp, params, emul, tage=0, peraa=False):
+    """
+    Add the nebular continuum from Cue to the young and old population and do the dust attenuation and igm absorption.
+    Also, calculate the line luminoisities from the young csp and old csp and do the dust attenuation and igm absorption.
+    The output spec/line luminosity need to be divided by total formed mass to get the specific number.
+    :param use_stellar_ionizing:
+        If true, fit CSPs and to get the ionizing spectrum parameters, else read from ssp
+    """
+    add_neb = params.get("add_neb_emission", False)
+    use_stars = params.get("use_stellar_ionizing", False)
+    ewave = ssp.emline_wavelengths
+    wave, tspec = ssp.get_spectrum(tage=tage, peraa=peraa)
+    young, old = ssp._csp_young_old
+    csps = [young, old] # could combine with previous line
+    lines = []
+    mass = np.sum(params.get('mass', 1.0))
+    if not add_neb:
+        lines = [np.zeros_like(ewave), np.zeros_like(ewave)]
+    elif add_neb:
+        if not use_stars:
+            line_prediction = np.zeros_like(ewave)
+            line_prediction[idx] = emul.predict_lines(**params)
+            #if ssp.params["sfh"] == 3:
+            #    line_prediction /= mass
+            lines = [line_prediction, np.zeros_like(ewave)]
+            csps[0][wave>=912] += emul.predict_cont(wave[wave>=912], **params)
+        elif use_stars:
+            for spec in csps:
+                ion_params = cue.fit_4loglinear_ionparam(wave, spec)
+                params.update(**ion_params)
+                line_prediction = np.zeros_like(ewave)
+                line_prediction[idx] = emul.predict_lines(**params)
+                #if ssp.params["sfh"] == 3:
+                #    line_prediction /= mass
+                lines.append(line_prediction)
+                spec[wave>=912] += emul.predict_cont(wave[wave>=912], **params)
+        else:
+            raise KeyError('No "use_stellar_ionizing" in model')
+            
+    # get all parameters required for the dust attenuation and igm absorption
+    new_params = {k: params.get(k, ssp.params[k]) for k in ["dust_type", "dust_index", "dust2", "dust1_index", "dust1", "igm_factor", "add_igm_absorption"]}
+    new_params = new_params | params
+
+    sspec, lines = add_dust(wave, csps, ewave, lines, **new_params)
+    sspec = add_igm(wave, sspec, **new_params)
     return wave, sspec, lines
