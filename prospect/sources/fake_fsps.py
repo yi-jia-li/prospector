@@ -1,9 +1,22 @@
 import numpy as np
+import cue
+import dill as pickle
+from pkg_resources import resource_filename
 
 __all__ = ["add_dust", "add_igm"]
 
+# index for the 128 emulated emission lines in fsps new line list
+idx = np.array([0,1,2,3,4,5,6,9,13,14,15,16,17,18,19,20,21,22,23,24,24,25,26,28,29,30,31,
+          32,34,35,37,38,39,40,41,43,44,45,46,47,48,49,50,51,52,53,54,57,59,61,62,
+          63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,84,85,86,87,88,89,
+          90,91,92,93,94,95,96,97,100,101,101,102,103,104,105,106,107,108,111,112,
+          114,116,118,119,122,123,125,127,129,130,134,137,139,140,143,145,146,148,
+          151,152,153,154,155,156,157,158,159,160,161,162,163,164,165])
 
-def add_dust(wave,specs,line_waves,lines,dust_type=0,dust_index=0.0,dust2=0.0,dust1_index=-1.0,dust1=0.0,**kwargs):
+out = pickle.load(open(resource_filename("cue", "data/nn_stats_v0.pkl"), "rb"))
+frac_line_err = 1./out['SN_quantile'][1][np.argsort(out['wav'])] # 1 / upper 2 sigma quantike of SN of the cue test set
+
+def add_dust(wave,specs,line_waves,lines,dust_type=0,dust_index=-0.7,dust2=0.0,dust1_index=-1.0,dust1=0.0,**kwargs):
     """
     wave: wavelength vector in Angstroms
     specs: spectral flux density, in (young, old) pairs
@@ -30,7 +43,7 @@ def add_dust(wave,specs,line_waves,lines,dust_type=0,dust_index=0.0,dust2=0.0,du
 
 
 def attenuate(spec,lam,dust_type=0,dust_index=0.0,dust2=0.0,dust1_index=0.0,dust1=0.0):
-    """returns F(obs) / F(emitted) for a given attenuation curve + dust1 + dust2
+    """returns F(obs) for a given attenuation curve + dust1 + dust2
     """
 
     ### constants from FSPS

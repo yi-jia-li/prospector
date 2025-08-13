@@ -1,7 +1,8 @@
 ### SSP for cue
 import numpy as np
+import fsps
 from pkg_resources import resource_filename
-from .ssp_basis import FastStepBasis
+from .ssp_basis import SSPBasis, FastStepBasis
 from .fake_fsps import add_dust, add_igm
 
 try:
@@ -10,10 +11,99 @@ except:
     pass
 
 
-__all__ = ["NebSSPBasis"]
+__all__ = ["NebSSPBasis", "NebStepBasis"]
 
+class NebSSPBasis(SSPBasis):
+    """A subclass of :py:class:`SSPBasis` that is a faster way to do SSP models by letting
+    FSPS do the weight calculations.
+    """
+    
+    def __init__(self, cue_kwargs={"line_ind":np.arange(138)},
+                 zcontinuous=1, interp_type='logarithmic', 
+                 flux_interp='linear', mint_log=-3, 
+                 compute_vega_mags=False,
+                 **kwargs):
 
-class NebSSPBasis(FastStepBasis):
+        self.interp_type = interp_type
+        self.mint_log = mint_log
+        self.flux_interp = flux_interp
+
+        self.emul = cue.Emulator(**cue_kwargs)
+        # we do these now
+        rp = ["dust1", "dust2", "dust3", "add_dust_emission",
+              "add_igm_absorption", "igm_factor",
+              "add_neb_emission", "add_neb_continuum", "nebemlineinspec",
+              "fagn", "agn_tau"]
+        reserved_params = kwargs.pop("reserved_params", []) + rp
+        super().__init__(reserved_params=reserved_params, **kwargs)
+        for k in ["add_igm_absorption", "add_dust_emission", "add_neb_emission", "nebemlineinspec"]:
+            self.ssp.params[k] = False
+
+        self.ssp = fsps.StellarPopulation(compute_vega_mags=compute_vega_mags,
+                                              zcontinuous=zcontinuous)
+
+        self.emline_wavelengths = np.genfromtxt(resource_filename("cue", "data/cue_emlines_info.dat"),
+                                                dtype=[('wave', 'f8'), ('name', '<U20')],
+                                                delimiter=',')['wave']
+        self.ssp.params['sfh'] = 0
+        self.reserved_params = reserved_params
+        self.params = {}
+        self.update(**kwargs)
+    
+    def get_galaxy_spectrum(self, **params):
+        """Construct the tabular SFH and feed it to the ``ssp``.
+        """
+        self.update(**params)
+        wave, spec, lines = get_spectrum(self.ssp, self.params, self.emul, self.emline_wavelengths, tage=float(self.params['tage']))
+        self._line_specific_luminosity = lines
+        
+        if self.params.get("nebemlineinspec", False): # mimic the "nebemlineinspec" function in FSPS
+            if self.ssp.params["smooth_velocity"] == True:
+                dlam = self.emline_wavelengths*self.ssp.params["sigma_smooth"]/2.9979E18*1E13 #smoothing variable is in km/s
+            else:
+                dlam = self.ssp.params["sigma_smooth"] #smoothing variable is in AA
+            nearest_id = np.searchsorted(wave, self.emline_wavelengths)
+            neb_res_min = wave[nearest_id]-wave[nearest_id-1]
+            dlam = np.max([dlam,neb_res_min*2], axis=0)
+            gaussnebarr = [1./np.sqrt(2*np.pi)/dlam[i]*np.exp(-(wave-self.emline_wavelengths[i])**2/2/dlam[i]**2) \
+            /2.9979E18*self.emline_wavelengths[i]**2 for i in range(len(lines))]
+            for i in range(len(lines)):
+                spec += lines[i]*gaussnebarr[i]
+        return wave, spec, self.ssp.stellar_mass
+    
+    def get_galaxy_elines(self):
+        """Get the wavelengths and specific emission line luminosity of the nebular emission lines
+        predicted by FSPS. These lines are in units of Lsun/solar mass formed.
+        This assumes that `get_galaxy_spectrum` has already been called.
+
+        :returns ewave:
+            The *restframe* wavelengths of the emission lines, AA
+
+        :returns elum:
+            Specific luminosities of the nebular emission lines,
+            Lsun/stellar mass formed
+        """
+        
+        # This allows subclasses to set their own specific emission line
+        # luminosities within other methods, e.g., get_galaxy_spectrum, by
+        # populating the `_specific_line_luminosity` attribute.
+        elum = getattr(self, "_line_specific_luminosity", None).copy()
+        ewave = self.emline_wavelengths
+        
+        if elum is None:
+            ewave = self.ssp.emline_wavelengths
+            elum = self.ssp.emline_luminosity.copy()
+        if elum.ndim > 1:
+            elum = elum[0]
+        if self.ssp.params["sfh"] == 3:
+            # tabular sfh
+            mass = np.sum(self.params.get('mass', 1.0))
+            elum /= mass
+
+        return ewave, elum
+
+    
+class NebStepBasis(FastStepBasis):
 
     """This is a class that wraps the fsps.StellarPopulation object, which is
     used for producing SSPs.  The ``fsps.StellarPopulation`` object is accessed
@@ -41,8 +131,17 @@ class NebSSPBasis(FastStepBasis):
     """
 
     def __init__(self, cue_kwargs={"line_ind":np.arange(138)},
+                 zcontinuous=1, interp_type='logarithmic', 
+                 flux_interp='linear', mint_log=-3, 
+                 compute_vega_mags=False,
                  **kwargs):
 
+        self.interp_type = interp_type
+        self.mint_log = mint_log
+        self.flux_interp = flux_interp
+        self.ssp = fsps.StellarPopulation(compute_vega_mags=compute_vega_mags,
+                                          zcontinuous=zcontinuous)
+        
         self.emul = cue.Emulator(**cue_kwargs)
         # we do these now
         rp = ["dust1", "dust2", "dust3", "add_dust_emission",
@@ -57,6 +156,10 @@ class NebSSPBasis(FastStepBasis):
         self.emline_wavelengths = np.genfromtxt(resource_filename("cue", "data/cue_emlines_info.dat"),
                                                 dtype=[('wave', 'f8'), ('name', '<U20')],
                                                 delimiter=',')['wave']
+        
+        self.reserved_params = reserved_params
+        self.params = {}
+        self.update(**kwargs)
 
     def get_galaxy_spectrum(self, **params):
         """Construct the tabular SFH and feed it to the ``ssp``.
@@ -73,7 +176,8 @@ class NebSSPBasis(FastStepBasis):
         self.ssp.set_tabular_sfh(time, sfr)
 
         wave, spec, lines = get_spectrum(self.ssp, self.params, self.emul, self.emline_wavelengths, tage=tmax)
-        self._line_specific_luminosity = lines/mtot
+        self._line_specific_luminosity = lines
+        
         if self.params.get("nebemlineinspec", False): # mimic the "nebemlineinspec" function in FSPS
             if self.ssp.params["smooth_velocity"] == True:
                 dlam = self.emline_wavelengths*self.ssp.params["sigma_smooth"]/2.9979E18*1E13 #smoothing variable is in km/s
@@ -81,7 +185,7 @@ class NebSSPBasis(FastStepBasis):
                 dlam = self.ssp.params["sigma_smooth"] #smoothing variable is in AA
             nearest_id = np.searchsorted(wave, self.emline_wavelengths)
             neb_res_min = wave[nearest_id]-wave[nearest_id-1]
-            dlam = np.max([dlam,neb_res_min], axis=0)
+            dlam = np.max([dlam,neb_res_min*2], axis=0)
             gaussnebarr = [1./np.sqrt(2*np.pi)/dlam[i]*np.exp(-(wave-self.emline_wavelengths[i])**2/2/dlam[i]**2) \
             /2.9979E18*self.emline_wavelengths[i]**2 for i in range(len(lines))]
             for i in range(len(lines)):
@@ -104,18 +208,18 @@ class NebSSPBasis(FastStepBasis):
         # This allows subclasses to set their own specific emission line
         # luminosities within other methods, e.g., get_galaxy_spectrum, by
         # populating the `_specific_line_luminosity` attribute.
-        elum = getattr(self, "_line_specific_luminosity", None)
+        elum = getattr(self, "_line_specific_luminosity", None).copy()
         ewave = self.emline_wavelengths
         
         if elum is None:
             ewave = self.ssp.emline_wavelengths
             elum = self.ssp.emline_luminosity.copy()
-            if elum.ndim > 1:
-                elum = elum[0]
-            if self.ssp.params["sfh"] == 3:
-                # tabular sfh
-                mass = np.sum(self.params.get('mass', 1.0))
-                elum /= mass
+        if elum.ndim > 1:
+            elum = elum[0]
+        if self.ssp.params["sfh"] == 3:
+            # tabular sfh
+            mass = np.sum(self.params.get('mass', 1.0))
+            elum /= mass
 
         return ewave, elum
 
@@ -128,8 +232,8 @@ def get_spectrum(ssp, params, emul, ewave, tage=0):
     :param use_stellar_ionizing:
         If true, fit CSPs and to get the ionizing spectrum parameters, else read from ssp
     """
-    add_neb = params["add_neb_emission"]
-    use_stars = params["use_stellar_ionizing"]
+    add_neb = params.get("add_neb_emission", False)
+    use_stars =  params.get("use_stellar_ionizing", False)
     #ewave = ssp.emline_wavelengths
     wave, tspec = ssp.get_spectrum(tage=tage, peraa=False)
     young, old = ssp._csp_young_old

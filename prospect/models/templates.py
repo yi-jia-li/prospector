@@ -269,6 +269,7 @@ TemplateLibrary["nebular"] = (_nebular_,
                                "with gas_logz tied to stellar logzsol."))
 
 # new nebular parameters from cue
+use_eline_nn_unc = {'N': 1, "isfree": False, "init": True}
 use_stellar_ionizing = {'N': 1, "isfree": False, "init": False}
 gas_logz = {'N': 1, 'isfree': True,
             "init": 0.0, 'units': r"log Z/Z_\odot",
@@ -325,6 +326,7 @@ log_qion = {"N": 1, 'isfree': True,
 _cue_nebular_ = {"add_neb_emission": add_neb,
                  "add_neb_continuum": neb_cont,
                  "nebemlineinspec": neb_spec,
+                 "use_eline_nn_unc": use_eline_nn_unc,
                  "use_stellar_ionizing": use_stellar_ionizing,
                  "gas_logz": gas_logz,
                  "gas_logu": gas_logu,
@@ -348,6 +350,7 @@ use_stellar_ionizing = {'N': 1, "isfree": False, "init": True}
 _cue_stellar_nebular_ = {"add_neb_emission": add_neb,
                          "add_neb_continuum": neb_cont,
                          "nebemlineinspec": neb_spec,
+                         "use_eline_nn_unc": use_eline_nn_unc,
                          "use_stellar_ionizing": use_stellar_ionizing,
                          "gas_logz": gas_logz,
                          "gas_logu": gas_logu,
@@ -357,7 +360,6 @@ _cue_stellar_nebular_ = {"add_neb_emission": add_neb,
                          }
 TemplateLibrary["cue_stellar_nebular"] = (_cue_stellar_nebular_,
                                           ("The set of nebular emission parameters for cue, where ionizing spectrum is fixed to young stellar populations from FSPS."))
-
 
 
 # -----------------------------------------

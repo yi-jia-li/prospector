@@ -19,6 +19,10 @@ from ..sources.constants import to_cgs_at_10pc as to_cgs
 from ..sources.constants import cosmo, lightspeed, ckms, jansky_cgs
 from ..utils.smoothing import smoothspec
 
+try:
+    from ..sources.fake_fsps import frac_line_err # a very rough estimate of the emission line emulator error
+except:
+    pass
 
 __all__ = ["SpecModel", "PolySpecModel", "SplineSpecModel",
            "LineSpecModel", "AGNSpecModel",
@@ -488,9 +492,13 @@ class SpecModel(ProspectorParams):
 
         # generate likelihood penalty term (and MAP amplitudes)
         # FIXME: Cache line amplitude covariance matrices?
+        if self.params.get('use_eline_nn_unc', False):
+            sigma_alpha_breve = (frac_line_err * np.abs(alpha_breve))**2
+        else:
+            sigma_alpha_breve = 0.
         if self.params.get('use_eline_prior', False):
             # Incorporate gaussian priors on the amplitudes
-            sigma_alpha_breve = np.diag((self.params['eline_prior_width'] * np.abs(alpha_breve)))**2
+            sigma_alpha_breve = np.diag((self.params['eline_prior_width'] * np.abs(alpha_breve))**2 + sigma_alpha_breve)
             M = np.linalg.pinv(sigma_alpha_hat + sigma_alpha_breve)
             alpha_bar = (np.dot(sigma_alpha_breve, np.dot(M, alpha_hat)) +
                          np.dot(sigma_alpha_hat, np.dot(M, alpha_breve)))
